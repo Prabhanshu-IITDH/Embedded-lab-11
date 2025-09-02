@@ -9,11 +9,11 @@
 #define COUNT_FLAG (1<<16)
 #define ENABLE (1<<0)
 #define CLKINT (1<<2)
-#define CLOCK_MHZ_16
+#define CLOCK_KHZ 16000
 
 
 void delay(int ms){
-    int t = 16000*ms;
+    int t = CLOCK_KHZ*ms;
     STRELOAD = t;
     STCURRENT = 0;
     STCTRL = (CLKINT | ENABLE);

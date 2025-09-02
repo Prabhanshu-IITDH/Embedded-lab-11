@@ -39,19 +39,36 @@ int main(void)
 
         if (!(GPIO_PORTF_DATA_R & 0x01) && (GPIO_PORTF_DATA_R & 0x10) ){
                     GPIO_PORTF_DATA_R = 0x04;
+
+                            GPIO_PORTF_DATA_R |= 0x02;
+                            delay(2000);
+                            GPIO_PORTF_DATA_R = 0x00;
+                            delay(2000);
                 }
         else if (!(GPIO_PORTF_DATA_R & 0x10) && (GPIO_PORTF_DATA_R & 0x01)){
                             GPIO_PORTF_DATA_R = 0x08;
+
+                                    GPIO_PORTF_DATA_R |= 0x02;
+                                    delay(2000);
+                                    GPIO_PORTF_DATA_R = 0x00;
+                                    delay(2000);
                         }
         else if (!(GPIO_PORTF_DATA_R & 0x10) && !(GPIO_PORTF_DATA_R & 0x01)){
-                                    GPIO_PORTF_DATA_R = 0x06;
+                                    GPIO_PORTF_DATA_R = 0x0C;
+
+                                            GPIO_PORTF_DATA_R |= 0x02;
+                                            delay(2000);
+                                            GPIO_PORTF_DATA_R = 0x00;
+                                            delay(2000);
                                 }
+
         else{
-        delay(500);
-        GPIO_PORTF_DATA_R = 0x02;
-        delay(500);
+        delay(2000);
+        GPIO_PORTF_DATA_R |= 0x02;
+        delay(2000);
         GPIO_PORTF_DATA_R = 0x00;
         }
+
 
     }
 }

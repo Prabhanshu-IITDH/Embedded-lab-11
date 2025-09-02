@@ -36,10 +36,22 @@ int main(void)
 
     while(1)
     {
+
+        if (!(GPIO_PORTF_DATA_R & 0x01) && (GPIO_PORTF_DATA_R & 0x10) ){
+                    GPIO_PORTF_DATA_R = 0x04;
+                }
+        else if (!(GPIO_PORTF_DATA_R & 0x10) && (GPIO_PORTF_DATA_R & 0x01)){
+                            GPIO_PORTF_DATA_R = 0x08;
+                        }
+        else if (!(GPIO_PORTF_DATA_R & 0x10) && !(GPIO_PORTF_DATA_R & 0x01)){
+                                    GPIO_PORTF_DATA_R = 0x06;
+                                }
+        else{
         delay(500);
         GPIO_PORTF_DATA_R = 0x02;
         delay(500);
         GPIO_PORTF_DATA_R = 0x00;
+        }
 
     }
 }

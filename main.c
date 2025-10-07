@@ -1,65 +1,83 @@
-#include <stdint.h>
-#include <stdbool.h>
 #include "tm4c123gh6pm.h"
-/**
- * main.c
- */
-// LED setup
-#define red 0x01
-#define blue 0x02
-#define green 0x04
+#include <stdint.h>
 
-#define STCTRL *((volatile long *) 0xE000E010)
-#define STRELOAD *((volatile long *) 0xE000E014)
-#define STCURRENT *((volatile long *) 0xE000E018)
+#define SW1     (1U << 4)
+#define SW2     (1U << 0)
+#define SWITCH_MASK (SW1 | SW2)
 
-#define COUNT_FLAG (1 << 16)
+volatile int duty_percent = 50;
 
-#define ENABLE  (1 << 0)
-#define CLKINT (1 << 2)
+void portf_init(void);
+void timer0_pwm_init(void);
 
-#define CLOCK_KHZ 16000
+int main(void) {
+    portf_init();
+    timer0_pwm_init();
 
-void delay(int ms){
-    STRELOAD = CLOCK_KHZ*ms;
-    STCURRENT = 0;
-    STCTRL = (CLKINT | ENABLE);
-
-    while((STCTRL & COUNT_FLAG) == 0){
-                        if (!(GPIO_PORTF_DATA_R & 0x01) && (GPIO_PORTF_DATA_R & 0x10) ){
-                            GPIO_PORTF_DATA_R |= 0x08;
-                        }
-                        else if (!(GPIO_PORTF_DATA_R & 0x10) && (GPIO_PORTF_DATA_R & 0x01)){
-                                    GPIO_PORTF_DATA_R |= 0x04;
-                                }
-                        else if (!(GPIO_PORTF_DATA_R & 0x10) && !(GPIO_PORTF_DATA_R & 0x01)){
-                                            GPIO_PORTF_DATA_R |= 0x0C;
-                        }
-                        else{
-                            GPIO_PORTF_DATA_R &= ~0x0C;
-                        }
+    while (1) {
+        // Do nothing, everything handled in ISR
     }
-
-    STCTRL = 0;
-    return;
 }
 
-int main(void)
-{
-    SYSCTL_RCGC2_R |=   0x00000020;      // ENABLE CLOCK TO GPIOF
-    GPIO_PORTF_LOCK_R = 0x4C4F434B;      // UNLOCK COMMIT REGISTER
-    GPIO_PORTF_CR_R   = 0x1F;            // MAKE PORTF0 CONFIGURABLE
-    GPIO_PORTF_DEN_R  = 0x1F;            // SET PORTF PINS 4 PIN
-    GPIO_PORTF_DIR_R  = 0x0E;            // SET PORTF4 PIN AS INPUT USER SWITCH PIN
-    GPIO_PORTF_PUR_R  = 0x11;            // PORTF4 IS PULLED UP
 
-    while(1)
-    {
-            GPIO_PORTF_DATA_R = 0x00;
-                delay(2000);
+void portf_init(void) {
+    SYSCTL_RCGCGPIO_R |= (1 << 5);       // Enable clock for Port F
+    while ((SYSCTL_PRGPIO_R & (1 << 5)) == 0) {}  // Wait
 
-                GPIO_PORTF_DATA_R |= 0x02;
-                delay(2000);
+    GPIO_PORTF_LOCK_R = 0x4C4F434B;      // Unlock PF0
+    GPIO_PORTF_CR_R |= SWITCH_MASK;      // Commit changes
 
+    GPIO_PORTF_DIR_R &= ~SWITCH_MASK;    // PF0, PF4 as input
+    GPIO_PORTF_DEN_R |= SWITCH_MASK;     // Digital enable
+    GPIO_PORTF_PUR_R |= SWITCH_MASK;     // Pull-up resistors
+
+    // Interrupt config
+    GPIO_PORTF_IS_R &= ~SWITCH_MASK;     // Edge-sensitive
+    GPIO_PORTF_IBE_R &= ~SWITCH_MASK;    // Not both edges
+    GPIO_PORTF_IEV_R &= ~SWITCH_MASK;    // Falling edge
+    GPIO_PORTF_ICR_R = SWITCH_MASK;      // Clear any prior interrupt
+    GPIO_PORTF_IM_R |= SWITCH_MASK;      // Unmask interrupt
+
+    NVIC_PRI7_R = (NVIC_PRI7_R & 0xFF3FFFFF) | (3 << 21); // Priority 3
+    NVIC_EN0_R |= (1 << 30);             // Enable interrupt in NVIC
+}
+
+// ===== Init Timer0A for PWM on PB6 =====
+void timer0_pwm_init(void) {
+    SYSCTL_RCGCGPIO_R |= (1 << 1);      // Enable clock for Port B
+    while ((SYSCTL_PRGPIO_R & (1 << 1)) == 0) {}
+
+    SYSCTL_RCGCTIMER_R |= (1 << 0);     // Enable clock for Timer0
+    while ((SYSCTL_PRTIMER_R & (1 << 0)) == 0) {}
+
+    // Configure PB6 for T0CCP0
+    GPIO_PORTB_AFSEL_R |= (1 << 6);
+    GPIO_PORTB_PCTL_R &= ~(0xF << 24);
+    GPIO_PORTB_PCTL_R |= (0x7 << 24);   // PB6 = T0CCP0
+    GPIO_PORTB_DEN_R |= (1 << 6);
+
+    TIMER0_CTL_R &= ~1;                 // Disable Timer0A
+    TIMER0_CFG_R = 0x04;                 // 16-bit mode
+    TIMER0_TAMR_R = 0x0A;                // PWM mode, periodic
+    TIMER0_TAILR_R = 1600 - 1;           // Load for 50 kHz @ 80MHz
+    TIMER0_TAMATCHR_R = 800;             // 50% duty cycle
+    TIMER0_CTL_R |= (1 << 0) | (1 << 8); // Enable Timer0A + CCP output
+}
+
+// ===== Port F ISR =====
+void GPIOF_Handler(void) {
+    uint32_t status = GPIO_PORTF_MIS_R;
+
+    if (status & SW1) {  // PF4 pressed
+        if (duty_percent > 5) duty_percent -= 5;
+        GPIO_PORTF_ICR_R = SW1;
     }
+    if (status & SW2) {  // PF0 pressed
+        if (duty_percent < 95) duty_percent += 5;
+        GPIO_PORTF_ICR_R = SW2;
+    }
+
+    // Update Timer0A match value
+    uint32_t load = 1600;
+    TIMER0_TAMATCHR_R = load - (duty_percent * load) / 100;
 }
